@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")  # Пример: @bobscience
-OWNER_IDS = [int(id.strip()) for id in os.getenv("OWNER_IDS", "").split(",") if id.strip()]
+OWNER_IDS = [int(uid.strip()) for uid in os.getenv("OWNER_IDS", "").split(",") if uid.strip().isdigit()]
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -21,10 +21,7 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# Получаем список разрешённых ID из окружения как числа
-OWNER_IDS = [int(uid.strip()) for uid in os.getenv("OWNER_IDS", "").split(",") if uid.strip().isdigit()]
-
-# Команда /post — публикует пост, если пользователь в списке разрешённых
+# Команда /post — только для владельцев
 @dp.message(Command("post"))
 async def post_to_channel(message: types.Message):
     if message.from_user.id not in OWNER_IDS:
@@ -43,28 +40,28 @@ async def post_to_channel(message: types.Message):
                 "— как всё правильно соединить 🔌\n"
                 "— что делать, если лампочка не горит 💡\n"
                 "— почему лимоны вообще дают электричество ⚡️\n\n"
-                "Жмите на кнопку ниже (подождите загрузку 5-10сек), чтобы получить файл 👇👇👇"
+                "Жмите на кнопку ниже (подождите загрузку 5-10 сек), чтобы получить файл 👇👇👇"
             ),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(
+                inline_keyboard=[[
+                    InlineKeyboardButton(
                         text="💡 Инструкция 💡",
                         url="https://t.me/bobscience_bot?start=TGkanal"
-                    )]
-                ]
+                    )
+                ]]
             )
         )
         await message.answer("✅ Пост с картинкой и кнопкой успешно отправлен.")
     except Exception as e:
         await message.answer(f"❌ Ошибка при отправке поста: {e}")
 
-# /start с и без параметров — проверка подписки
+# /start — проверка подписки, отправка презентации и таймер
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, command: CommandStart):
     user_id = message.from_user.id
 
-    # Отправим "обложку" как фон
+    # Отправка фонового изображения
     await bot.send_photo(user_id, types.FSInputFile("oblozhka_fon_bota.jpg"))
 
     try:
@@ -73,11 +70,12 @@ async def start_handler(message: types.Message, command: CommandStart):
             await message.answer("✅ Подписка подтверждена! Вот ваш файл:")
             await bot.send_document(
                 chat_id=user_id,
-                document=types.FSInputFile("Лимонная_батарейка_презентация_pptx_1.pdf"),
+                document=types.FSInputFile("Лимонная_батарейка_презентация.pdf"),
                 caption="📄\n"
-                "Не спешите закрывать бота, в ближайшие 5 дней я пришлю вам реферат по этому эксперименту.\n\n"
-                "Руководства по новым экспериментам буду выдавать тут 👋"
+                        "Не спешите закрывать бота, в ближайшие 5 дней я пришлю вам реферат по этому эксперименту.\n\n"
+                        "Руководства по новым экспериментам буду выдавать тут 👋"
             )
+            asyncio.create_task(send_delayed_referral(user_id))
         else:
             raise Exception("Пользователь не подписан")
     except Exception:
@@ -101,20 +99,29 @@ async def check_subscription(callback: types.CallbackQuery):
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
         if member.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]:
-            await callback.answer("✅ Подписка подтверждена!", show_alert=True)
-            await callback.message.edit_text("✅ Подписка подтверждена! Получите ваши знания:")
-            await bot.send_document(
-                chat_id=user_id,
-                document=types.FSInputFile("Лимонная_батарейка_презентация_pptx_1.pdf"),
-                caption="📄\n"
-                "Не спешите закрывать бота, в ближайшие 5 дней я пришлю вам реферат по этому эксперименту.\n"
-                "Руководства по новым экспериментам буду выдавать тут 👋"
+            await callback.answer(
+                "✅ Подписка подтверждена!\n"
+                "Спасибо за подписку, жмите кнопку «СТАРТ», если ещё не нажали 👇",
+                show_alert=True
             )
         else:
             await callback.answer("❌ Вы ещё не подписаны!", show_alert=True)
     except Exception as e:
         logging.error(f"Ошибка при проверке подписки: {e}")
         await callback.answer("⚠️ Ошибка. Попробуйте позже.", show_alert=True)
+
+# Отложенная отправка реферата
+async def send_delayed_referral(user_id: int):
+    await asyncio.sleep(900)  # 15 минут
+    try:
+        await bot.send_message(user_id, "Подробный реферат 🔗")
+        await bot.send_document(
+            chat_id=user_id,
+            document=types.FSInputFile("Реферат_Лимонная_батарейка.pdf"),
+            caption="📝 Ваш реферат готов!"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка при отправке реферата через 15 минут: {e}")
 
 # Запуск
 async def main():
